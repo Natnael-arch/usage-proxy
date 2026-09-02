@@ -1,0 +1,22 @@
+{
+  "name": "usage-proxy",
+  "version": "1.0.0",
+  "description": "Central usage proxy: auth + pass-through to paid upstream providers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "migrate": "node db/migrate.js",
+    "seed": "node db/seed.js",
+    "seed:pricing": "node db/seedPricing.js",
+    "seed:balance": "node db/seedBalance.js",
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.23.0"
+  }
+}
