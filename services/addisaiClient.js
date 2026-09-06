@@ -50,13 +50,7 @@ async function translate(body) {
     console.error(
       '[addisai] translate_out failed | status=' + res.status +
         ' | source_language=' + JSON.stringify(body.source_language) +
-        ' | target_language=' + JSON.stringify(body.target_language) +
-        ' | text_type=' + typeof body.text +
-        ' | text_length_chars=' + (typeof body.text === 'string' ? body.text.length : 'n/a') +
-        ' | text_preview=' + JSON.stringify(
-          typeof body.text === 'string' ? body.text.slice(0, 200) : body.text
-        ) +
-        ' | upstream_body=' + JSON.stringify(data)
+        ' | target_language=' + JSON.stringify(body.target_language)
     );
 
     const upstreamMsg =
