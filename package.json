@@ -7,6 +7,7 @@
     "start": "node server.js",
     "migrate": "node db/migrate.js",
     "seed": "node db/seed.js",
+    "seed:token": "node db/seedSpecificToken.js",
     "seed:pricing": "node db/seedPricing.js",
     "seed:balance": "node db/seedBalance.js",
     "test": "node --test"

@@ -19,9 +19,23 @@ app.use('/v1', authenticate, checkBalance, translateRouter);
 // Fallback for unknown routes
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
+const { migrate } = require('./db/migrate');
+
 const PORT = process.env.PORT || 8787;
-app.listen(PORT, () => {
-  console.log(`Usage proxy listening on :${PORT}`);
-});
+
+async function startServer() {
+  try {
+    console.log('[DB] Running database migrations...');
+    await migrate();
+  } catch (err) {
+    console.error('[DB] Migration error on startup:', err.message);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Usage proxy listening on :${PORT}`);
+  });
+}
+
+startServer();
 
 module.exports = app;
