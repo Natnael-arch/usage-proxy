@@ -56,6 +56,18 @@ async function chatCompletions(body) {
     throw err;
   }
 
+  if (!data) {
+    const err = new Error(`DeepSeek API returned invalid JSON (HTTP ${res.status}): ${text.substring(0, 200)}`);
+    err.status = 502;
+    throw err;
+  }
+
+  if (data.error) {
+    const err = new Error(`DeepSeek API error: ${data.error.message || JSON.stringify(data.error)}`);
+    err.status = 502;
+    throw err;
+  }
+
   return data;
 }
 
