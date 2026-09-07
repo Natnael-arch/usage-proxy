@@ -6,11 +6,17 @@ const { authenticate } = require('./middleware/auth');
 const { checkBalance } = require('./middleware/balanceCheck');
 const chatCompletionsRouter = require('./routes/chatCompletions');
 const translateRouter = require('./routes/translate');
+const activateRouter = require('./routes/activate');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+// Public onboarding: exchange a one-time activation code for an auth token.
+// Mounted BEFORE the authenticated /v1 routes below. The activate handler
+// responds without calling next(), so the auth/balance chain never runs for it.
+app.use('/v1', activateRouter);
 
 // Authenticated routes: auth first, then a pre-flight balance check.
 app.use('/v1', authenticate, checkBalance, chatCompletionsRouter);
