@@ -87,9 +87,9 @@ function sseUpstreamBody() {
   const encoder = new TextEncoder();
   const nonce = Math.floor(Math.random() * 1e6);
   const blocks = [
-    `data: {"id":"chatcmpl-${nonce}","object":"chat.completion.chunk","created":0,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}\n\n`,
-    `data: {"id":"chatcmpl-${nonce}","object":"chat.completion.chunk","created":0,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}\n\n`,
-    `data: {"id":"chatcmpl-${nonce}","object":"chat.completion.chunk","created":0,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":24,"completion_tokens":39,"total_tokens":63}}\n\n`,
+    `data: {"id":"chatcmpl-${nonce}","object":"chat.completion.chunk","created":0,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}\n\n`,
+    `data: {"id":"chatcmpl-${nonce}","object":"chat.completion.chunk","created":0,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}\n\n`,
+    `data: {"id":"chatcmpl-${nonce}","object":"chat.completion.chunk","created":0,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":24,"completion_tokens":39,"total_tokens":63}}\n\n`,
     `data: [DONE]\n\n`,
   ];
   return new ReadableStream({
@@ -134,7 +134,7 @@ function sseRequest(url) {
     );
     req.on('error', reject);
     req.write(JSON.stringify({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       stream: true,
       stream_options: { include_usage: true },
       messages: [{ role: 'user', content: 'Hi' }],
@@ -169,7 +169,7 @@ test('streaming request: SSE passthrough + usage/cost + usage_logs/balance', asy
   assert.match(res.body, /data: \[DONE\]/);
   assert.match(res.body, /"prompt_tokens":24/);
   assert.match(res.body, /"completion_tokens":39/);
-  assert.match(res.body, /"model":"deepseek-v4-flash"/);
+  assert.match(res.body, /"model":"deepseek-flash"/);
 
   // One usage_logs success row with the usage from the final chunk.
   assert.strictEqual(usageLogInsert.length, 1);
@@ -177,7 +177,7 @@ test('streaming request: SSE passthrough + usage/cost + usage_logs/balance', asy
   assert.strictEqual(logParams[0], 'c1');          // customer_id
   assert.strictEqual(logParams[1], 'i1');          // instance_id
   assert.strictEqual(logParams[2], 'deepseek');    // provider
-  assert.strictEqual(logParams[3], 'deepseek-v4-flash'); // route
+  assert.strictEqual(logParams[3], 'deepseek-flash'); // route
   assert.strictEqual(logParams[4], pricingRate.id);     // pricing_rate_id
   assert.strictEqual(logParams[5], 24);            // input_tokens
   assert.strictEqual(logParams[6], 39);            // output_tokens

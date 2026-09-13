@@ -2,7 +2,7 @@
 // rate (effective_to IS NULL) already exists for the same provider/route, it
 // is left untouched rather than duplicated.
 //
-// Rates are DeepSeek's official OFF-PEAK list prices for deepseek-v4-flash,
+// Rates are DeepSeek's official OFF-PEAK list prices for deepseek-flash,
 // per https://api-docs.deepseek.com/quick_start/pricing (verified 2026-09-01):
 //   input  $0.22 / 1M tokens  -> 0.000220 / 1k
 //   output $0.66 / 1M tokens  -> 0.000660 / 1k
@@ -20,7 +20,7 @@ const { pool } = require('./connection');
 const RATES = [
   {
     provider: 'deepseek',
-    model_or_route: 'deepseek-v4-flash',
+    model_or_route: 'deepseek-flash',
     input_cost_per_1k: 0.000220, // $0.22 / 1M tokens
     output_cost_per_1k: 0.000660, // $0.66 / 1M tokens
     your_margin_pct: 0, // pilot/demo phase — revisit before real customer billing
