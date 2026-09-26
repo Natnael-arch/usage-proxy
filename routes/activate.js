@@ -12,6 +12,9 @@ function error(res, status, code) {
   return res.status(status).json({ error: code });
 }
 
+// A valid machine fingerprint is a SHA-256 hex digest (64 lowercase hex).
+const FINGERPRINT_RE = /^[0-9a-f]{64}$/;
+
 router.post('/activate', async (req, res) => {
   const code = typeof req.body?.activation_code === 'string'
     ? req.body.activation_code.trim()
@@ -19,6 +22,14 @@ router.post('/activate', async (req, res) => {
 
   if (!code) {
     return error(res, 400, 'missing_activation_code');
+  }
+
+  const fingerprint = typeof req.body?.fingerprint === 'string'
+    ? req.body.fingerprint.trim().toLowerCase()
+    : '';
+
+  if (fingerprint && !FINGERPRINT_RE.test(fingerprint)) {
+    return error(res, 400, 'invalid_fingerprint');
   }
 
   const codeHash = hashToken(code);
@@ -68,9 +79,21 @@ router.post('/activate', async (req, res) => {
       [tokenId, row.id]
     );
 
+    // Bind the machine fingerprint to the per-install instance row. The code
+    // determines which instance is being activated; redeeming a new code for
+    // the SAME instance re-binds the fingerprint (operator rebind path).
+    if (fingerprint) {
+      await client.query(
+        `UPDATE instances
+         SET fingerprint_hash = $1, fingerprint_bound_at = now()
+         WHERE id = $2`,
+        [fingerprint, row.instance_id]
+      );
+    }
+
     await client.query('COMMIT');
 
-    return res.status(200).json({ token });
+    return res.status(200).json({ token, fingerprint_bound: !!fingerprint });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Activation failed:', err.message);

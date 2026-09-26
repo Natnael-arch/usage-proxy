@@ -1,8 +1,29 @@
 // Auth middleware: validates the instance bearer token and authorizes the
 // request. On success attaches customer_id and instance_id to req and bumps
 // instances.last_seen_at.
+//
+// Machine-fingerprint binding: when the request carries X-Instance-Fingerprint
+// and the instance has a stored fingerprint hash, the two must match or the
+// request is refused. Semantic switches:
+//   - Header absent            -> warn + allow (older/unbundled clients; never
+//                                 a hard failure, per rollout policy).
+//   - Stored hash absent       -> warn + allow (token predates binding).
+//   - Header present, mismatch -> controlled by FINGERPRINT_ENFORCE:
+//       soft (default, rollout): log the mismatch and ALLOW (grace period for
+//                                legitimate hardware changes + migration).
+//       hard:                    reject with 403 instance_mismatch.
+// Only the SHA-256 hash is ever compared; raw hardware id never leaves a host.
 const { pool } = require('../db/connection');
 const { hashToken } = require('../services/token');
+
+const FINGERPRINT_HEADER = 'x-instance-fingerprint';
+const FINGERPRINT_RE = /^[0-9a-f]{64}$/;
+
+// Read at request time (not module load) so operators can flip soft -> hard
+// without restarting; tests also exercise both modes in one process.
+function fingerprintEnforceMode() {
+  return (process.env.FINGERPRINT_ENFORCE || 'soft').toLowerCase();
+}
 
 async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization || '';
@@ -26,6 +47,7 @@ async function authenticate(req, res, next) {
          i.id              AS instance_id,
          i.status          AS instance_status,
          i.customer_id,
+         i.fingerprint_hash,
          c.status          AS customer_status
        FROM auth_tokens t
        JOIN instances i  ON i.id = t.instance_id
@@ -62,6 +84,43 @@ async function authenticate(req, res, next) {
   req.customer_id = row.customer_id;
   req.instance_id = row.instance_id;
 
+  // ── Machine-fingerprint check ──────────────────────────────────────────
+  const provided = (req.headers[FINGERPRINT_HEADER] || '').trim().toLowerCase();
+
+  if (!provided) {
+    console.warn(
+      `[FINGERPRINT] instance=${row.instance_id} token=${row.token_id}: authenticated request ` +
+      'without X-Instance-Fingerprint (older client or unbundled install); allowing (rollout).'
+    );
+  } else if (!FINGERPRINT_RE.test(provided)) {
+    console.warn(
+      `[FINGERPRINT] instance=${row.instance_id} token=${row.token_id}: header present but ` +
+      'not a valid SHA-256 hash; ignoring.'
+    );
+  } else if (!row.fingerprint_hash) {
+    console.warn(
+      `[FINGERPRINT] instance=${row.instance_id} token=${row.token_id}: fingerprint header sent ` +
+      'but no fingerprint bound to this instance (token predates binding); allowing.'
+    );
+  } else if (provided === row.fingerprint_hash.toLowerCase()) {
+    // Match — nothing to do.
+  } else {
+    // Mismatch. Soft = Machinery: log + allow (grace window). Hard = refuse.
+    if (fingerprintEnforceMode() === 'hard') {
+      console.warn(
+        `[FINGERPRINT] instance=${row.instance_id} token=${row.token_id}: MISMATCH ` +
+        `header=${provided.slice(0, 8)}… stored=${row.fingerprint_hash.slice(0, 8)}… ` +
+        '— rejecting (FINGERPRINT_ENFORCE=hard).'
+      );
+      return res.status(403).json({ error: 'instance_mismatch' });
+    }
+    console.warn(
+      `[FINGERPRINT] instance=${row.instance_id} token=${row.token_id}: MISMATCH ` +
+      `header=${provided.slice(0, 8)}… stored=${row.fingerprint_hash.slice(0, 8)}… ` +
+      '— allowing during soft-enforcement grace window (hard enforcement off).'
+    );
+  }
+
   try {
     await pool.query(
       'UPDATE instances SET last_seen_at = now() WHERE id = $1',
@@ -75,4 +134,4 @@ async function authenticate(req, res, next) {
   return next();
 }
 
-module.exports = { authenticate };
+module.exports = { authenticate, FINGERPRINT_HEADER };

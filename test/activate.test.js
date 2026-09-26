@@ -30,6 +30,13 @@ function fakeClient() {
       if (sql.includes('INSERT INTO auth_tokens')) {
         return { rows: [{ id: 'at-1' }] };
       }
+      if (sql.includes('UPDATE instances')) {
+        const update = queries.filter(
+          (q) => q.sql.includes('UPDATE instances') && q.sql.includes('fingerprint_hash')
+        ).pop();
+        lastFingerprintUpdate = update ? update.params : null;
+        return { rows: [] };
+      }
       return { rows: [] };
     },
     release() {},
@@ -37,8 +44,10 @@ function fakeClient() {
 }
 
 let currentCodeRow;
+let lastFingerprintUpdate;
 function stubPool() {
   queries = [];
+  lastFingerprintUpdate = null;
   originalConnect = pool.connect;
   pool.connect = async () => fakeClient();
 }
@@ -165,4 +174,61 @@ test('missing code returns 400 missing_activation_code', async () => {
 
   assert.equal(res.status, 400);
   assert.equal(res.body.error, 'missing_activation_code');
+});
+
+test('fingerprint is bound to the instance on successful activation', async () => {
+  queries = [];
+  lastFingerprintUpdate = null;
+  currentCodeRow = {
+    id: 'ac-5',
+    instance_id: 'i-5',
+    expires_at: new Date(Date.now() + 3600e3).toISOString(),
+    used_at: null,
+  };
+
+  const fp = 'a'.repeat(64);
+  const res = await postActivate({ activation_code: 'code-with-fp', fingerprint: fp });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.fingerprint_bound, true);
+  assert.ok(lastFingerprintUpdate, 'expected an instances fingerprint UPDATE');
+  assert.equal(lastFingerprintUpdate[0], fp);
+  assert.equal(lastFingerprintUpdate[1], 'i-5');
+
+  const verify = queries.some((q) => q.sql.includes('UPDATE instances'));
+  assert.ok(verify, 'expected an UPDATE instances query');
+});
+
+test('no fingerprint -> token minted, no instance binding, allowed (legacy)', async () => {
+  queries = [];
+  lastFingerprintUpdate = null;
+  currentCodeRow = {
+    id: 'ac-6',
+    instance_id: 'i-6',
+    expires_at: new Date(Date.now() + 3600e3).toISOString(),
+    used_at: null,
+  };
+
+  const res = await postActivate({ activation_code: 'legacy-code' });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.fingerprint_bound, false);
+  assert.equal(lastFingerprintUpdate, null, 'must not bind when no fingerprint sent');
+});
+
+test('malformed fingerprint returns 400 invalid_fingerprint', async () => {
+  queries = [];
+  currentCodeRow = {
+    id: 'ac-7',
+    instance_id: 'i-7',
+    expires_at: new Date(Date.now() + 3600e3).toISOString(),
+    used_at: null,
+  };
+
+  const res = await postActivate({ activation_code: 'bad-fp-code', fingerprint: 'not-a-hash' });
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error, 'invalid_fingerprint');
+  const inserts = queries.filter((q) => q.sql.includes('INSERT INTO auth_tokens'));
+  assert.equal(inserts.length, 0, 'must not mint a token for a malformed fingerprint');
 });

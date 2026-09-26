@@ -2,6 +2,13 @@
 // activation code the agent-gateway will exchange for a real auth token at
 // POST /v1/activate. Prints ONLY the plaintext activation code to the console
 // -- it is stored hashed, so write it down now and hand it to the customer.
+//
+// REBIND MODE (requirement 5: legitimate hardware-change path):
+//   node scripts/createCustomer.js <days> --rebind=<instanceId>
+// or `REBIND_INSTANCE_ID=<instanceId> node scripts/createCustomer.js <days>`
+// mints a NEW one-time code tied to the SAME existing instance + customer
+// (no new customer/instance rows). Redeeming it via installer/activate.js
+// re-binds the machine fingerprint on that instance. No self-service path.
 require('dotenv').config();
 const { pool } = require('../db/connection');
 const { generateToken, hashToken } = require('../services/token');
@@ -19,10 +26,16 @@ const days = (() => {
   return Number.isFinite(env) && env > 0 ? env : 7;
 })();
 
+// Rebind target instance id: --rebind=<id> CLI flag or REBIND_INSTANCE_ID env.
+const rebindArg = process.argv.find((a) => a.startsWith('--rebind='));
+const rebindInstanceId = rebindArg
+  ? rebindArg.slice('--rebind='.length).trim()
+  : (process.env.REBIND_INSTANCE_ID || '').trim();
+
 async function createCustomer() {
   const name = process.argv[3] || process.env.CUSTOMER_NAME || 'New Customer';
   const email = process.argv[4] || process.env.CUSTOMER_EMAIL || `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`;
-  const instanceLabel = process.argv[5] || process.env.INSTANCE_LABEL || 'Default Instance';
+  let instanceLabel = process.argv[5] || process.env.INSTANCE_LABEL || 'Default Instance';
 
   const code = generateToken();
 
@@ -30,21 +43,41 @@ async function createCustomer() {
   try {
     await client.query('BEGIN');
 
-    const customerRes = await client.query(
-      `INSERT INTO customers (name, contact_email, status, notes)
-       VALUES ($1, $2, 'active', 'Created via createCustomer script, waiting for activation')
-       RETURNING id`,
-      [name, email]
-    );
-    const customerId = customerRes.rows[0].id;
+    let customerId;
+    let instanceId;
 
-    const instanceRes = await client.query(
-      `INSERT INTO instances (customer_id, label, status)
-       VALUES ($1, $2, 'active')
-       RETURNING id`,
-      [customerId, instanceLabel]
-    );
-    const instanceId = instanceRes.rows[0].id;
+    if (rebindInstanceId) {
+      // REBIND MODE: reuse the existing instance + customer. No new rows.
+      const instRes = await client.query(
+        `SELECT id, customer_id, label FROM instances WHERE id = $1`,
+        [rebindInstanceId]
+      );
+      const inst = instRes.rows[0];
+      if (!inst) {
+        await client.query('ROLLBACK');
+        console.error(`No instance found with id ${rebindInstanceId}`);
+        process.exit(1);
+      }
+      customerId = inst.customer_id;
+      instanceId = inst.id;
+      instanceLabel = inst.label;
+    } else {
+      const customerRes = await client.query(
+        `INSERT INTO customers (name, contact_email, status, notes)
+         VALUES ($1, $2, 'active', 'Created via createCustomer script, waiting for activation')
+         RETURNING id`,
+        [name, email]
+      );
+      customerId = customerRes.rows[0].id;
+
+      const instanceRes = await client.query(
+        `INSERT INTO instances (customer_id, label, status)
+         VALUES ($1, $2, 'active')
+         RETURNING id`,
+        [customerId, instanceLabel]
+      );
+      instanceId = instanceRes.rows[0].id;
+    }
 
     await client.query(
       `INSERT INTO activation_codes (customer_id, instance_id, code_hash, expires_at)
@@ -54,10 +87,21 @@ async function createCustomer() {
 
     await client.query('COMMIT');
 
-    console.log('Created customer + instance + activation code:');
-    console.log(`  customer_id  ${customerId}`);
-    console.log(`  instance_id  ${instanceId}`);
-    console.log(`  code expiry  ${days} day(s) from now`);
+    if (rebindInstanceId) {
+      console.log('REBIND activation code for EXISTING instance:');
+      console.log(`  instance_id  ${instanceId}`);
+      console.log(`  customer_id  ${customerId}`);
+      console.log(`  code expiry  ${days} day(s) from now`);
+      console.log('');
+      console.log('Redeeming this code re-binds the machine fingerprint of');
+      console.log('that instance (the previous fingerprint is overwritten).');
+    } else {
+      console.log('Created customer + instance + activation code:');
+      console.log(`  customer_id  ${customerId}`);
+      console.log(`  instance_id  ${instanceId}`);
+      console.log(`  code expiry  ${days} day(s) from now`);
+    }
+
     console.log('');
     console.log('ACTIVATION CODE (store securely; cannot be retrieved later):');
     console.log(code);
