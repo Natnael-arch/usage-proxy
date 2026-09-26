@@ -103,7 +103,10 @@ async function authenticate(req, res, next) {
       'but no fingerprint bound to this instance (token predates binding); allowing.'
     );
   } else if (provided === row.fingerprint_hash.toLowerCase()) {
-    // Match — nothing to do.
+    console.info(
+      `[FINGERPRINT] instance=${row.instance_id} token=${row.token_id}: MATCH ` +
+      `header=${provided.slice(0, 8)}… stored=${row.fingerprint_hash.slice(0, 8)}… — matched.`
+    );
   } else {
     // Mismatch. Soft = Machinery: log + allow (grace window). Hard = refuse.
     if (fingerprintEnforceMode() === 'hard') {
